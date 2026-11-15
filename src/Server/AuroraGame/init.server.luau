@@ -475,20 +475,31 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------- jugador
-Players.PlayerAdded:Connect(function(p)
-	if player then return end
+local function registerPlayer(p)
+	if player or p.Parent ~= Players then return end
 	player = p
 	S = newState()
-	p.CharacterAdded:Connect(function(char)
+
+	local lastCharacter
+	local function onCharacterAdded(char)
+		if char == lastCharacter then return end
+		lastCharacter = char
 		char:WaitForChild("HumanoidRootPart", 5)
 		task.wait(0.1)
+		if player ~= p or p.Character ~= char then return end
 		local cf = spawnFor(S.day)
 		if cf then char:PivotTo(cf) end
 		for _, m in modules do if m.onRespawn then m.onRespawn(char) end end
 		task.wait(0.4)
-		push()
-	end)
-end)
+		if player == p and p.Character == char then push() end
+	end
+
+	p.CharacterAdded:Connect(onCharacterAdded)
+	if p.Character then task.spawn(onCharacterAdded, p.Character) end
+end
+
+Players.PlayerAdded:Connect(registerPlayer)
+for _, p in Players:GetPlayers() do registerPlayer(p) end
 Players.PlayerRemoving:Connect(function(p)
 	if p == player then
 		player = nil

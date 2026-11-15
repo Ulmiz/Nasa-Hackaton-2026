@@ -41,6 +41,15 @@ return function(ctx)
 	local dockCF = port:WaitForChild("PuntoAcople").CFrame
 	local zone = port:WaitForChild("ZonaCarga")
 	local holdText = textOf(DM:WaitForChild("PantallaEscotilla"))
+	local zoneBox = DM:WaitForChild("ZonaDescarga"):WaitForChild("ZonaLogica")
+	local scalePart = CM:WaitForChild("Bascula")
+	local cartSign = cart:FindFirstChild("Letrero") and textOf(cart.Letrero)
+	local CART_SIGN = cartSign and cartSign.Text or ""
+	local function inZone(pos)
+		local rel = zoneBox.CFrame:PointToObjectSpace(pos)
+		local h = zoneBox.Size / 2
+		return math.abs(rel.X) <= h.X and math.abs(rel.Z) <= h.Z and rel.Y <= h.Y + 4
+	end
 
 	local function st() return ctx.S() end
 	local function d2() return ctx.S().d2 end
@@ -58,7 +67,7 @@ return function(ctx)
 			mass += d.loaded[t] * Config.CRATE_KG
 			cost += d.loaded[t] * Config.Crates[t].cost
 		end
-		if d.cart then cost += Config.CART_COST end
+		if d.cart or d.cartRented then cost += Config.CART_COST end
 		local r = rocketSpec(d.rocket)
 		if r then cost += r.cost end
 		local cap = r and Config.capacity(r.id, d.orbit) or 0
@@ -112,17 +121,30 @@ return function(ctx)
 			table.insert(carryParts, p)
 		end
 		if d.cart then
-			-- el carrito va delante del jugador, apoyado en el suelo, y las cajas se apilan encima
+			-- el carrito es un objeto aparte (no forma parte del personaje): AuroraCarritoCliente lo empuja
+			-- delante del jugador, apoyado en el suelo, y las cajas van apiladas encima
 			local g = (hum and hum.HipHeight or 2) + hrp.Size.Y / 2
-			local base = hrp.CFrame * CFrame.new(0, -g, -3.8) * CFrame.Angles(0, math.pi / 2, 0)
-			for _, p in buildCartAt(base, char) do weld(p) end
+			local look = hrp.CFrame.LookVector
+			local flat = Vector3.new(look.X, 0, look.Z)
+			flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1)
+			local p0 = hrp.Position + flat * 3.8 - Vector3.new(0, g, 0)
+			local base = CFrame.lookAt(p0, p0 + flat) * CFrame.Angles(0, math.pi / 2, 0)
+			if d.cartParked and d.cartCF then base = d.cartCF end
+			local model = Instance.new("Model")
+			model.Name = "CarritoJugador"
+			model:SetAttribute("Owner", plr.UserId)
+			model:SetAttribute("Parked", d.cartParked == true)
+			model:SetAttribute("Altura", g)
+			for _, p in buildCartAt(base, model) do p.Anchored = true end
 			local slots = { CFrame.new(1.0, 2.8, 0), CFrame.new(-0.85, 2.8, 0), CFrame.new(1.0, 4.65, 0) }
 			for i, t in d.carry do
 				local c = makeCrate(t)
 				c.CFrame = base * (slots[i] or slots[1])
-				c.Parent = char
-				weld(c)
+				c.Parent = model
 			end
+			model.WorldPivot = base
+			model.Parent = workspace
+			table.insert(carryParts, model)
 		else
 			for i, t in d.carry do
 				local c = makeCrate(t)
@@ -165,7 +187,7 @@ return function(ctx)
 		local over = r and mass > cap
 		holdText.Text = ("<b>BODEGA · NAVE %s</b>\n%s\nTOTAL <font color=\"%s\"><b>%d kg</b>%s</font> · %d / %d cr"):format(
 			r and r.name:upper() or "SIN ACOPLAR", table.concat(parts, " · "), over and "#ff6e5a" or "#ffffff", mass, capTxt, cost, st().budget)
-		scaleText.Text = ("<b>MANIFIESTO DE CARGA</b>\n%s\nLleva las cajas a la <b>ESCOTILLA</b> del muelle (oeste)"):format(table.concat(parts, " · "))
+		scaleText.Text = ("<b>MANIFIESTO DE CARGA</b>\n%s\nLa <b>ZONA DE DESCARGA</b> está en el MUELLE (oeste) →"):format(table.concat(parts, " · "))
 	end
 
 	local function setLever()
@@ -195,13 +217,13 @@ return function(ctx)
 		end
 		local color, sign
 		if d.rocket == "" then
-			color, sign = Color3.fromRGB(255, 80, 80), "PUERTO DE ATRAQUE  /  SIN NAVE"
+			color, sign = Color3.fromRGB(190, 60, 60), "PUERTO DE ATRAQUE  /  SIN NAVE"
 		elseif d.docking then
-			color, sign = Color3.fromRGB(255, 190, 60), "NAVE EN APROXIMACIÓN"
+			color, sign = Color3.fromRGB(200, 145, 45), "NAVE EN APROXIMACIÓN"
 		elseif open then
-			color, sign = Color3.fromRGB(255, 190, 60), "ABIERTA  /  CARGANDO"
+			color, sign = Color3.fromRGB(200, 145, 45), "ABIERTA  /  CARGANDO"
 		else
-			color, sign = Color3.fromRGB(110, 240, 170), "NAVE ACOPLADA  /  SELLADO"
+			color, sign = Color3.fromRGB(80, 185, 130), "NAVE ACOPLADA  /  SELLADO"
 		end
 		for _, p in hatchNeon do p.Color = color end
 		if hatchSign then hatchSign.Text = sign end
@@ -284,12 +306,13 @@ return function(ctx)
 		clearShip()
 		cover.CFrame = coverClosed
 		for i, dr in doors do dr.CFrame = doorClosed[i]; dr.Transparency = 0; dr.CanCollide = true end
-		for _, p in hatchNeon do p.Color = Color3.fromRGB(255, 80, 80) end
+		for _, p in hatchNeon do p.Color = Color3.fromRGB(190, 60, 60) end
 		if hatchSign then hatchSign.Text = "PUERTO DE ATRAQUE  /  SIN NAVE" end
 		for _, p in cart:GetDescendants() do if p:IsA("BasePart") then p.Transparency = 0 end end
-		for k, pd in pedestals do pd.Anillo.Color = KIND_COLOR[k] end
+		for k, pd in pedestals do pd.Anillo.Color = KIND_COLOR[k]:Lerp(Color3.new(0, 0, 0), 0.35) end
 		boardIdle("Pide una nave, cárgala por la escotilla,\nciérrala y pulsa <b>PROBAR</b>.")
-		scaleText.Text = "<b>MANIFIESTO DE CARGA</b>\nLleva las cajas a la <b>ESCOTILLA</b> del muelle (oeste)"
+		scaleText.Text = "<b>MANIFIESTO DE CARGA</b>\nLa <b>ZONA DE DESCARGA</b> está en el MUELLE (oeste) →"
+		if cartSign then cartSign.Text = CART_SIGN end
 		holdText.Text = "<b>BODEGA DE LA NAVE</b>\nSin nave acoplada"
 	end
 
@@ -475,6 +498,9 @@ return function(ctx)
 		ctx.prompt(rack.PrimaryPart, "take_" .. t, "Tomar caja", ("%s · 20 kg · %d cr"):format(c.name, c.cost), 2)
 	end
 	ctx.prompt(cart.PrimaryPart, "cart", "Alquilar carrito", ("Lleva 3 cajas a la vez · %d cr"):format(Config.CART_COST), 2)
+	local pReturnCart = ctx.prompt(cart.PrimaryPart, "returnCart", "Devolver carrito", "Carrito de carga", 2)
+	pReturnCart.KeyboardKeyCode = Enum.KeyCode.R
+	pReturnCart.UIOffset = Vector2.new(0, 70)
 	local pHatch = ctx.prompt(hatchCol, "hatch", "Abrir escotilla", "Puerto de atraque", 2)
 	local pSeal = ctx.prompt(hatchCol, "seal", "Cerrar y sellar", "Puerto de atraque", 2)
 	pSeal.KeyboardKeyCode = Enum.KeyCode.F
@@ -492,9 +518,34 @@ return function(ctx)
 	pLaunch.KeyboardKeyCode = Enum.KeyCode.F
 	pLaunch.HoldDuration = 1
 
+	local handle = Instance.new("Part")
+	handle.Name = "AsaCarrito"; handle.Anchored = true; handle.CanCollide = false; handle.CanQuery = false; handle.CanTouch = false
+	handle.Transparency = 1; handle.Size = Vector3.new(1, 1, 1); handle.CFrame = CFrame.new(0, -500, 0)
+	handle.Parent = DM
+	ctx.prompt(handle, "pushCart", "Empujar carrito", "Carrito de carga", 2)
+	local pUnloadOne = ctx.prompt(handle, "unloadOne", "Sacar última caja", "Vuelve a su estante", 2)
+	pUnloadOne.KeyboardKeyCode = Enum.KeyCode.Q
+	pUnloadOne.UIOffset = Vector2.new(0, 70)
+	for _, t in Config.CRATE_ORDER do
+		local rack = CM:WaitForChild("Estante_" .. t)
+		local pr = ctx.prompt(rack.PrimaryPart, "return_" .. t, "Devolver caja", "Estante · " .. Config.Crates[t].name, 2)
+		pr.KeyboardKeyCode = Enum.KeyCode.R
+		pr.UIOffset = Vector2.new(0, 70)
+	end
+	local function placeHandle()
+		local d = d2()
+		handle.CFrame = (d.cart and d.cartParked and d.cartCF) and (d.cartCF * CFrame.new(0, 2.5, 0)) or CFrame.new(0, -500, 0)
+	end
+	local function cartNear(pos, dist)
+		local d = d2()
+		if not (d.cart and d.cartParked and d.cartCF) then return true end
+		return (d.cartCF.Position - pos).Magnitude <= dist
+	end
+
 	local function syncHatchPrompts()
 		local d = d2()
-		pHatch.ActionText = d.hatchOpen and "Cargar cajas" or "Abrir escotilla"
+		local n = #d.carry
+		pHatch.ActionText = d.hatchOpen and (n > 0 and ("Cargar %d caja(s)"):format(n) or "Cargar cajas") or "Abrir escotilla"
 	end
 
 	local function locked()
@@ -510,12 +561,32 @@ return function(ctx)
 		syncHatchPrompts()
 	end
 
+	local function depositCarry(auto)
+		local d = d2()
+		local n = #d.carry
+		for _, t in d.carry do
+			d.loaded[t] += 1
+			table.insert(d.order, t)
+		end
+		d.carry = {}
+		ctx.toast((auto and "🛒 Descarga automática: %d caja(s) pasaron a la bodega de la nave." or "Cargaste %d caja(s) en la bodega de la nave."):format(n), "good")
+		renderCarry()
+		syncHatchPrompts()
+		invalidate()
+		refreshNumbers()
+		ctx.push()
+	end
+
 	function M.onPrompt(key)
 		local S = st()
 		local d = d2()
 		local take = key:match("^take_(%a+)$")
 		if take then
 			if locked() then return end
+			if not cartNear(CM["Estante_" .. take].PrimaryPart.Position, 16) then
+				ctx.toast("Tu carrito está estacionado lejos: acércate a él y pulsa E para empujarlo hasta aquí.", "warn")
+				return
+			end
 			local cap = d.cart and Config.CART_CAPACITY or 1
 			if #d.carry >= cap then
 				ctx.toast(d.cart and "El carrito está lleno (3 cajas). Llévalas a la escotilla del muelle." or "Solo puedes cargar 1 caja a mano. Alquila el carrito o llévala a la escotilla del muelle.", "warn")
@@ -523,7 +594,64 @@ return function(ctx)
 			end
 			table.insert(d.carry, take)
 			renderCarry()
+			syncHatchPrompts()
 			ctx.toast(("Tomaste una caja de %s (20 kg)."):format(Config.Crates[take].short))
+			ctx.push()
+			return
+		end
+		local back = key:match("^return_(%a+)$")
+		if back then
+			if locked() then return end
+			local idx
+			for i = #d.carry, 1, -1 do if d.carry[i] == back then idx = i break end end
+			if not idx then ctx.toast(("No llevas cajas de %s."):format(Config.Crates[back].short)) return end
+			if not cartNear(CM["Estante_" .. back].PrimaryPart.Position, 16) then
+				ctx.toast("Tu carrito está estacionado lejos: acércalo al estante para devolver la caja.", "warn")
+				return
+			end
+			table.remove(d.carry, idx)
+			renderCarry()
+			syncHatchPrompts()
+			ctx.toast(("Devolviste una caja de %s al estante."):format(Config.Crates[back].short))
+			ctx.push()
+			return
+		end
+		if key == "unloadOne" then
+			if locked() then return end
+			local t = table.remove(d.carry)
+			if not t then ctx.toast("El carrito está vacío.") return end
+			renderCarry()
+			syncHatchPrompts()
+			ctx.toast(("Sacaste una caja de %s del carrito: volvió a su estante."):format(Config.Crates[t].short))
+			ctx.push()
+			return
+		end
+		if key == "returnCart" then
+			if locked() then return end
+			if not d.cart then ctx.toast("No tienes el carrito.") return end
+			if d.cartParked and d.cartCF and (d.cartCF.Position - cart.PrimaryPart.Position).Magnitude > 20 then
+				ctx.toast("Tu carrito está estacionado lejos: tráelo hasta aquí para devolverlo.", "warn")
+				return
+			end
+			local n = #d.carry
+			d.carry = {}
+			d.cart = false
+			d.cartParked = false
+			for _, p in cart:GetDescendants() do if p:IsA("BasePart") then p.Transparency = 0 end end
+			if cartSign then cartSign.Text = CART_SIGN end
+			renderCarry()
+			placeHandle()
+			syncHatchPrompts()
+			ctx.toast(n > 0 and ("Devolviste el carrito; sus %d caja(s) volvieron a los estantes."):format(n) or "Devolviste el carrito.")
+			ctx.push()
+			return
+		end
+		if key == "pushCart" then
+			if not (d.cart and d.cartParked) then return end
+			d.cartParked = false
+			renderCarry()
+			placeHandle()
+			ctx.toast("🛒 Vuelves a empujar el carrito. Pulsa G para soltarlo.")
 			ctx.push()
 			return
 		end
@@ -539,16 +667,11 @@ return function(ctx)
 				return
 			end
 			if #d.carry == 0 then ctx.toast("No llevas cajas: tómalas de los estantes del Depósito.") return end
-			for _, t in d.carry do
-				d.loaded[t] += 1
-				table.insert(d.order, t)
+			if not cartNear(hatchCol.Position, 18) then
+				ctx.toast("Tu carrito está estacionado lejos: tráelo hasta la escotilla (E sobre el carrito para empujarlo).", "warn")
+				return
 			end
-			ctx.toast(("Cargaste %d caja(s) en la bodega de la nave."):format(#d.carry), "good")
-			d.carry = {}
-			renderCarry()
-			invalidate()
-			refreshNumbers()
-			ctx.push()
+			depositCarry(false)
 			return
 		end
 		if key == "seal" then
@@ -575,10 +698,14 @@ return function(ctx)
 		if key == "cart" then
 			if locked() then return end
 			if d.cart then ctx.toast("Ya tienes el carrito alquilado.") return end
+			local paid = d.cartRented
 			d.cart = true
+			d.cartRented = true
+			d.cartParked = false
 			for _, p in cart:GetDescendants() do if p:IsA("BasePart") and p.Name ~= "Letrero" then p.Transparency = 1 end end
+			if cartSign then cartSign.Text = "DEVOLVER CARRITO (R)" end
 			renderCarry()
-			ctx.toast(("🛒 Carrito alquilado (−%d cr): ahora llevas 3 cajas a la vez."):format(Config.CART_COST), "good")
+			ctx.toast(paid and "🛒 Recuperaste el carrito (ya estaba pagado)." or ("🛒 Carrito alquilado (−%d cr): ahora llevas 3 cajas a la vez."):format(Config.CART_COST), "good")
 			invalidate()
 			refreshNumbers()
 			ctx.push()
@@ -592,7 +719,7 @@ return function(ctx)
 			if d.rocket == rk then ctx.toast("Esa nave ya está acoplada.") return end
 			local had = d.rocket ~= ""
 			d.rocket = rk
-			for k, pd in pedestals do pd.Anillo.Color = k == rk and Color3.new(1, 1, 1) or KIND_COLOR[k] end
+			for k, pd in pedestals do pd.Anillo.Color = k == rk and Color3.fromRGB(150, 205, 230) or KIND_COLOR[k]:Lerp(Color3.new(0, 0, 0), 0.35) end
 			dockShip(rk)
 			ctx.toast(("Nave %s en aproximación: mírala por el ventanal y espera el acople."):format(rocketSpec(rk).name:lower())
 				.. (had and " La carga se pasa a la nueva nave." or ""), "good")
@@ -636,6 +763,33 @@ return function(ctx)
 		end
 	end
 
+	function M.actions.dropCart(data)
+		local S = st()
+		local d = d2()
+		if S.day ~= 2 or not d.cart or d.cartParked or d.result ~= "" or type(data) ~= "table" or typeof(data.cf) ~= "CFrame" then return end
+		local plr = ctx.player()
+		local hrp = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+		if not hrp or (data.cf.Position - hrp.Position).Magnitude > 12 then return end
+		local look = data.cf.RightVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1)
+		d.cartParked = true
+		d.cartCF = CFrame.lookAt(data.cf.Position, data.cf.Position + flat) * CFrame.Angles(0, math.pi / 2, 0)
+		renderCarry()
+		placeHandle()
+		local where = d.cartCF.Position
+		if #d.carry > 0 and inZone(where) then
+			if not (d.rocket ~= "" and not d.docking and d.hatchOpen) then
+				ctx.toast("🛒 Carrito en la zona de descarga: las cajas esperan aquí y se cargarán solas al acoplar la nave y abrir la escotilla.", "warn")
+			end
+		elseif (where - scalePart.Position).Magnitude <= 8 then
+			ctx.toast("Esta báscula no es la zona de descarga: la carga entra por la escotilla del MUELLE (oeste). Sigue el marcador 📍.", "warn")
+		else
+			ctx.toast("🛒 Carrito estacionado. E sobre él para empujarlo · Q para sacar una caja.")
+		end
+		ctx.push()
+	end
+
 	function M.actions.storm(data)
 		local S = st()
 		local d = d2()
@@ -656,7 +810,7 @@ return function(ctx)
 	function M.fresh(S)
 		S.d2 = { carry = {}, cart = false, loaded = { food = 0, water = 0, meds = 0 }, order = {}, rocket = "", orbit = "low",
 			tested = false, test = {}, tests = 0, lightHigh = false, firstFail = "", coverOpen = false, countdown = 0,
-			hatchOpen = false, docking = false,
+			hatchOpen = false, docking = false, cartParked = false, cartCF = nil, cartRented = false,
 			stormRolled = false, stormPending = false, storm = "", result = "" }
 	end
 	function M.onStart()
@@ -667,9 +821,10 @@ return function(ctx)
 		resetWorld()
 		setLever()
 		syncHatchPrompts()
+		placeHandle()
 		refreshNumbers()
 	end
-	function M.reset() resetWorld() end
+	function M.reset() resetWorld(); handle.CFrame = CFrame.new(0, -500, 0) end
 	function M.onRespawn() if ctx.S().day == 2 then renderCarry() end end
 	function M.canAdvance() return d2().result ~= "" end
 	function M.pendingOptional() return 0 end
@@ -683,6 +838,7 @@ return function(ctx)
 		for _, p in carryParts do p:Destroy() end
 		carryParts = {}
 		d.carry = {}
+		handle.CFrame = CFrame.new(0, -500, 0)
 	end
 	function M.report(add)
 		local r = st().res.d2
@@ -710,6 +866,60 @@ return function(ctx)
 		end
 		if r.bonus then add(("Bono de eficiencia del Día 2: +%d puntos."):format(r.bonus), true) end
 	end
+
+	-- el motivo de una acción bloqueada aparece en el propio texto de la tecla
+	local rackPrompts = {}
+	for _, t in Config.CRATE_ORDER do
+		local rack = CM:WaitForChild("Estante_" .. t)
+		for _, pr in rack.PrimaryPart:GetChildren() do
+			if pr:IsA("ProximityPrompt") then rackPrompts[pr:GetAttribute("Key")] = pr end
+		end
+	end
+	local function syncHints()
+		local S = ctx.S()
+		local d = S and S.d2
+		if not (S and S.day == 2 and d) then return end
+		local cap = d.cart and Config.CART_CAPACITY or 1
+		for _, t in Config.CRATE_ORDER do
+			local rp = CM["Estante_" .. t].PrimaryPart.Position
+			local far = not cartNear(rp, 16)
+			local pt, pr = rackPrompts["take_" .. t], rackPrompts["return_" .. t]
+			if pt then pt.ActionText = far and "Tomar caja · carrito lejos" or (#d.carry >= cap and (d.cart and "Tomar caja · carrito lleno" or "Tomar caja · manos llenas") or "Tomar caja") end
+			if pr then
+				local has = table.find(d.carry, t) ~= nil
+				pr.ActionText = not has and "Devolver caja · no llevas" or (far and "Devolver caja · carrito lejos" or "Devolver caja")
+			end
+		end
+	end
+
+	local lastHint = 0
+	task.spawn(function()
+		while true do
+			task.wait(0.3)
+			pcall(syncHints)
+			local S = ctx.S()
+			local d = S and S.d2
+			if S and S.phase == "playing" and S.day == 2 and not S.paused and not S.userPaused and d and #d.carry > 0 and d.result == "" and d.countdown == 0 and not d.stormPending then
+				local plr = ctx.player()
+				local hrp = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+				local near = false
+				if d.cart and d.cartParked and d.cartCF then
+					near = inZone(d.cartCF.Position) or (d.cartCF.Position - hatchCol.Position).Magnitude <= 18
+				elseif hrp then
+					local ahead = hrp.Position + Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z) * 3.8
+					near = inZone(hrp.Position) or (d.cart and inZone(ahead)) or (hrp.Position - hatchCol.Position).Magnitude <= 13
+				end
+				if near then
+					if d.rocket ~= "" and not d.docking and d.hatchOpen then
+						depositCarry(true)
+					elseif os.clock() - lastHint > 7 then
+						lastHint = os.clock()
+						ctx.toast(d.rocket == "" and "Para cargar, primero pide una nave en un pedestal del muelle." or (d.docking and "Espera a que la nave termine de acoplarse." or "Abre la escotilla (E) y las cajas se cargan solas."), "warn")
+					end
+				end
+			end
+		end
+	end)
 
 	resetWorld()
 	return M

@@ -240,6 +240,14 @@ local trajesBtn = button(gui, "TRAJES", C.bg, function()
 end, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -14), Size = UDim2.new(0, 230, 0, 56),
 	TextColor3 = C.accent, TextSize = 22, BackgroundTransparency = 0.12, Visible = false })
 stroke(trajesBtn, EDGE)
+-- Soltar el carrito (Día 2): lo deja estacionado donde está; E sobre él para volver a empujarlo
+local function dropCart()
+	if not (S and S.phase == "playing" and S.day == 2 and S.d2 and S.d2.cart and not S.d2.cartParked) then return end
+	local m = workspace:FindFirstChild("CarritoJugador")
+	if m and not m:GetAttribute("Parked") then remote:FireServer("dropCart", { cf = m:GetPivot() }) end
+end
+local dropBtn = button(gui, "🛒 Soltar carrito (G)", C.warn, dropCart, { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 12, 1, -80),
+	Size = UDim2.new(0, 230, 0, 40), TextSize = 16, Visible = false })
 local function hideSkinButton()
 	local _, open = skinParts()
 	if open then open.Visible = false end
@@ -696,7 +704,8 @@ local function renderObjectives()
 		label(obj, "<b>Depósito de carga</b>", 13, C.accent)
 		label(obj, check(minsOk) .. (" Mínimos: comida %d/80 · agua %d/60 · medicinas %d/40 kg"):format(kg.food, kg.water, kg.meds), 15)
 		label(obj, check(S.mass >= 180) .. (" ≥ 180 kg en la bodega de la nave (llevas %d)"):format(S.mass), 15)
-		if x.cart then label(obj, ("🛒 Carrito: %d/3 cajas · llévalas a la escotilla del muelle (E)"):format(#x.carry), 13, C.warn) elseif #x.carry > 0 then label(obj, "En mano: 1 caja · llévala a la escotilla del muelle (E)", 13, C.warn) end
+		if x.cart and x.cartParked then label(obj, ("🛒 Carrito estacionado (%d/3 cajas) · E para empujarlo · Q saca una caja"):format(#x.carry), 13, C.warn)
+		elseif x.cart then label(obj, ("🛒 Carrito: %d/3 cajas · llévalo a la escotilla abierta y se descargan solas · G lo suelta"):format(#x.carry), 13, C.warn) elseif #x.carry > 0 then label(obj, "En mano: 1 caja · llévala a la escotilla abierta y se carga sola", 13, C.warn) end
 		label(obj, "<b>Muelle de atraque</b> (al oeste)", 13, C.accent)
 		label(obj, check(x.rocket ~= "" or x.result ~= "") .. " Pide una nave de carga en un pedestal", 15)
 		label(obj, "• Trayectoria: " .. (x.orbit == "high" and "Rápida (+200 pts, −30 % capacidad)" or "Eficiente") .. " · palanca", 12, C.dim)
@@ -771,7 +780,10 @@ local function wantedMarkers()
 		if x.result == "" then
 			local minsOk = true
 			for _, c in Config.Cargo do if x.loaded[c.id] * Config.CRATE_KG < c.min then minsOk = false end end
-			if #x.carry > 0 then
+			local cartFar = x.cart and x.cartParked and x.cartCF and (x.cartCF.Position - Vector3.new(-166.4, 6, 0)).Magnitude > 18
+			if #x.carry > 0 and cartFar then
+				add("pushCart", "CARRITO · empújalo (E)")
+			elseif #x.carry > 0 then
 				if x.rocket == "" then add("rocket_medium", "NAVES · pide una (E)")
 				elseif x.docking then add("hatch", "ESCOTILLA · nave acoplándose…")
 				else add("hatch", x.hatchOpen and "ESCOTILLA · cargar (E)" or "ESCOTILLA · abrir (E)") end
@@ -848,6 +860,7 @@ local function render()
 	nextBtn.Visible = playing and S.canAdvance and not S.paused and not S.userPaused
 	endBtn.Visible = playing and not S.canAdvance and not S.paused and not S.userPaused
 	pauseBtn.Visible = playing
+	dropBtn.Visible = playing and S.day == 2 and S.d2 ~= nil and S.d2.cart and not S.d2.cartParked and S.d2.result == "" and not S.paused and not S.userPaused
 	langIntro.Visible = S.phase == "intro"
 	if applyPause then applyPause(playing and S.userPaused == true) end
 	orbitBar.Visible = playing and S.day == 3
@@ -970,6 +983,7 @@ function applyPause(on)
 end
 pauseBtn.MouseButton1Click:Connect(function() if S and S.phase == "playing" and not S.paused then setPaused(not S.userPaused) end end)
 UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.G then dropCart() return end
 	if processed or input.KeyCode ~= Enum.KeyCode.P then return end
 	if S and S.phase == "playing" and not S.paused then setPaused(not S.userPaused) end
 end)
