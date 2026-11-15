@@ -1,0 +1,39 @@
+{
+  "name": "Nasa2026",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$path": "src/Shared"
+    },
+    "ServerScriptService": {
+      "$path": "src/Server"
+    },
+    "ServerStorage": {
+      "$path": "src/ServerStorage"
+    },
+    "StarterGui": {
+      "$path": "src/StarterGui"
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "$path": "src/Client"
+      },
+      "StarterCharacterScripts": {
+        "$path": "src/StarterCharacterScripts"
+      }
+    },
+    "Workspace": {
+      "$path": "src/Workspace",
+      "$ignoreUnknownInstances": true
+    },
+    "Lighting": {
+      "$path": "src/Lighting"
+    },
+    "SoundService": {
+      "$path": "src/SoundService"
+    },
+    "StarterPack": {
+      "$path": "src/StarterPack"
+    }
+  }
+}

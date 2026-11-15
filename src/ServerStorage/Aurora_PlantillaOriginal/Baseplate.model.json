@@ -1,0 +1,9 @@
+{
+  "ClassName": "Part",
+  "Properties": {
+    "Name": "Baseplate",
+    "Anchored": true,
+    "Size": [512, 16, 512],
+    "Position": [0, -8, 0]
+  }
+}

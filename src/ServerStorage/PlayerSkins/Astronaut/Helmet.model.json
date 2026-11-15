@@ -1,0 +1,34 @@
+{
+  "ClassName": "Accessory",
+  "Properties": {
+    "AttachmentPoint": [0, 0.125, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]
+  },
+  "Children": [
+    {
+      "ClassName": "Part",
+      "Name": "Handle",
+      "Properties": {
+        "Size": [1.52874755859375, 1.3531827926635742, 1.5126609802246094]
+      },
+      "Children": [
+        {
+          "ClassName": "SpecialMesh",
+          "Name": "Mesh",
+          "Properties": {
+            "MeshId": "http://www.roblox.com/asset/?id=1079902",
+            "TextureId": "http://www.roblox.com/asset/?id=1079903",
+            "MeshType": "FileMesh",
+            "Scale": [0.764373779296875, 0.6765913963317871, 0.7563304901123047]
+          }
+        },
+        {
+          "ClassName": "Vector3Value",
+          "Name": "OriginalSize",
+          "Properties": {
+            "Value": [2, 2, 2]
+          }
+        }
+      ]
+    }
+  ]
+}
