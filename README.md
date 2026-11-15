@@ -4,6 +4,9 @@ Aurora Station is an videogame that simulates the process to design, handle and 
 As a prototype, this game is made from Roblox, with the possibility for expand more features, like spacecraft design and editing,
 device crafting, more realistic physic simulation, land mission, among others.
 
+## Already available!
+**Roblox**: Play [here](https://www.roblox.com/games/79921421990277).
+
 ## Game Overview
 You stares in a Aurora spatial station, in above four days you will face missions/tasks where you see the results from  
 experiment with some variable, like data calibration, cultivation monitoring, some rocket launch, and do observations from
