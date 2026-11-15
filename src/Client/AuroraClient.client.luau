@@ -72,6 +72,8 @@ local gui = new("ScreenGui", { Name = "AuroraUI", ResetOnSpawn = false, IgnoreGu
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 5 }, player:WaitForChild("PlayerGui"))
 
 local S = nil
+local applyPause -- definida en el menú de pausa
+local UserInputService = game:GetService("UserInputService")
 
 ---------------------------------------------------------------- HUD
 local EDGE = Color3.fromRGB(60, 130, 170)
@@ -112,7 +114,7 @@ stat("data", "💾", "DATOS", 4)
 -- Cronómetro (derecha superior)
 local timerMin = false
 local timerPanel = panelFrame({ Size = UDim2.new(0, 270, 0, 90), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 10), Visible = false })
-local dayBig = label(timerPanel, "DÍA: 00", 28, C.text, BOLD, { Position = UDim2.new(0, 10, 0, 8), Size = UDim2.new(1, -50, 0, 34),
+local dayBig = label(timerPanel, "DÍA: 00", 28, C.text, BOLD, { Position = UDim2.new(0, 104, 0, 8), Size = UDim2.new(1, -144, 0, 34),
 	AutomaticSize = Enum.AutomaticSize.None, TextXAlignment = Enum.TextXAlignment.Center })
 local timeLbl = label(timerPanel, "", 16, C.bad, BOLD, { Position = UDim2.new(0, 10, 0, 44), Size = UDim2.new(1, -20, 0, 20),
 	AutomaticSize = Enum.AutomaticSize.None, TextXAlignment = Enum.TextXAlignment.Center })
@@ -134,11 +136,22 @@ end
 music.Ended:Connect(function() playTrack(musicIdx + 1) end)
 task.spawn(function() playTrack(1) end)
 local musicBtn = button(timerPanel, "🔊", C.panel2, nil, { Size = UDim2.new(0, 28, 0, 24), Position = UDim2.new(0, 8, 0, 8), TextSize = 14 })
-musicBtn.MouseButton1Click:Connect(function()
-	musicOn = not musicOn
+local function setMusic(on)
+	musicOn = on
 	musicBtn.Text = musicOn and "🔊" or "🔇"
 	if musicOn then music:Resume() if not music.IsPlaying then music:Play() end else music:Pause() end
-end)
+end
+musicBtn.MouseButton1Click:Connect(function() setMusic(not musicOn) end)
+-- Idioma (español / inglés): lo aplica el script AuroraIdiomaCliente
+local function curLang() return player:GetAttribute("AuroraIdioma") or "es" end
+local function setLang(l) player:SetAttribute("AuroraIdioma", l) end
+local langMini = button(timerPanel, "EN", C.panel2, function() setLang(curLang() == "es" and "en" or "es") end,
+	{ Size = UDim2.new(0, 28, 0, 24), Position = UDim2.new(0, 72, 0, 8), TextSize = 12, TextColor3 = C.accent })
+local langIntro = button(gui, "🌐 English", C.panel2, function() setLang(curLang() == "es" and "en" or "es") end,
+	{ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -16, 0, 14), Size = UDim2.new(0, 160, 0, 42), TextSize = 16, TextColor3 = C.accent, ZIndex = 30, Visible = false })
+stroke(langIntro, EDGE)
+-- Botón de pausa (junto al de música); el menú se arma más abajo
+local pauseBtn = button(timerPanel, "⏸", C.panel2, nil, { Size = UDim2.new(0, 28, 0, 24), Position = UDim2.new(0, 40, 0, 8), TextSize = 14, TextColor3 = C.accent })
 minimizeBtn(timerPanel, function()
 	timerMin = not timerMin
 	timerPanel.Size = UDim2.new(0, 270, 0, timerMin and 48 or 90)
@@ -788,7 +801,7 @@ end
 
 local function updateMarkers()
 	local want = {}
-	if S and S.phase == "playing" and not S.paused then
+	if S and S.phase == "playing" and not S.paused and not S.userPaused then
 		for _, m in wantedMarkers() do want[m.key] = m end
 	end
 	for key, mk in markers do
@@ -832,12 +845,15 @@ local function render()
 	leftCol.Visible = showHud
 	trajesBtn.Visible = showHud
 	objFrame.Visible = playing
-	nextBtn.Visible = playing and S.canAdvance and not S.paused
-	endBtn.Visible = playing and not S.canAdvance and not S.paused
+	nextBtn.Visible = playing and S.canAdvance and not S.paused and not S.userPaused
+	endBtn.Visible = playing and not S.canAdvance and not S.paused and not S.userPaused
+	pauseBtn.Visible = playing
+	langIntro.Visible = S.phase == "intro"
+	if applyPause then applyPause(playing and S.userPaused == true) end
 	orbitBar.Visible = playing and S.day == 3
 	dayBig.Text = timerMin and ("DÍA %02d · %s"):format(S.day, fmtTime(S.timeLeft)) or ("DÍA: %02d"):format(S.day)
 	dayBig.TextSize = timerMin and 22 or 28
-	timeLbl.Text = (S.paused and "EN PAUSA · " or "TIEMPO RESTANTE: ") .. fmtTime(S.timeLeft)
+	timeLbl.Text = ((S.paused or S.userPaused) and "EN PAUSA · " or "TIEMPO RESTANTE: ") .. fmtTime(S.timeLeft)
 	timeLbl.TextColor3 = S.timeLeft <= 30 and C.bad or Color3.fromRGB(255, 120, 80)
 	dayLabel.Text = S.dayName or ""
 	chips.power.Text = math.floor(S.power) .. " %"
@@ -880,6 +896,83 @@ local function render()
 		end
 	end
 end
+
+---------------------------------------------------------------- menú de pausa
+local pauseGui = new("ScreenGui", { Name = "AuroraPausa", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 8, Enabled = false }, player:WaitForChild("PlayerGui"))
+new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Active = true }, pauseGui)
+local pausePanel = new("Frame", { Size = UDim2.new(0, 380, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = C.bg, BackgroundTransparency = 0.04 }, pauseGui)
+corner(pausePanel, 14); stroke(pausePanel, C.accent); pad(pausePanel, 22)
+local ppl = list(pausePanel, 12); ppl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+label(pausePanel, "⏸  PAUSA", 30, C.accent, BOLD, { TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 0) })
+local pauseInfo = label(pausePanel, "", 14, C.dim, MED, { TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 0) })
+new("Frame", { Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = EDGE, BorderSizePixel = 0 }, pausePanel)
+local function pauseButton(text, color, txtColor, onClick)
+	return button(pausePanel, text, color, onClick, { Size = UDim2.new(1, 0, 0, 46), TextSize = 17, TextColor3 = txtColor or C.bg })
+end
+local function setPaused(on) remote:FireServer("pause", { on = on }) end
+pauseButton("▶  Reanudar", C.good, nil, function() setPaused(false) end)
+pauseButton("📖  Manual del día", C.warn, nil, function()
+	if not (S and openHelp) then return end
+	pauseGui.Enabled = false
+	openHelp(S.day)
+	task.spawn(function()
+		while modal and not modal.closed do task.wait(0.2) end
+		if S and S.userPaused then pauseGui.Enabled = true end
+	end)
+end)
+local pauseMusic
+pauseMusic = pauseButton("", C.panel2, C.text, function() setMusic(not musicOn); pauseMusic.Text = musicOn and "🔊  Música: activada" or "🔇  Música: desactivada" end)
+local langPause = pauseButton("", C.panel2, C.text, function() setLang(curLang() == "es" and "en" or "es") end)
+local function syncLang()
+	local en = curLang() == "en"
+	langMini.Text = en and "ES" or "EN"
+	langIntro.Text = en and "🌐 Español" or "🌐 English"
+	langPause.Text = en and "🌐  Idioma: Inglés" or "🌐  Idioma: Español"
+end
+syncLang()
+player:GetAttributeChangedSignal("AuroraIdioma"):Connect(syncLang)
+local restartBtn
+restartBtn = pauseButton("🔄  Reiniciar partida", C.panel2, C.bad, function()
+	if restartBtn:GetAttribute("Armed") then
+		restartBtn:SetAttribute("Armed", false)
+		remote:FireServer("restart")
+	else
+		restartBtn:SetAttribute("Armed", true); restartBtn.Text = "¿Seguro? Se pierde el progreso · Confirmar"
+		task.delay(3, function() restartBtn:SetAttribute("Armed", false); restartBtn.Text = "🔄  Reiniciar partida" end)
+	end
+end)
+label(pausePanel, "Tecla <b>P</b> para pausar o reanudar", 12, C.dim, MED, { TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 0) })
+
+-- congela al personaje mientras la partida está en pausa
+local shownPause = false
+local savedMove = nil
+function applyPause(on)
+	if on == shownPause then return end
+	shownPause = on
+	pauseGui.Enabled = on
+	pauseBtn.Text = on and "▶" or "⏸"
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if on then
+		closeModal()
+		pauseInfo.Text = ("El tiempo del %s está detenido (%s restantes)."):format(S and ("Día " .. S.day) or "día", fmtTime(S and S.timeLeft or 0))
+		pauseMusic.Text = musicOn and "🔊  Música: activada" or "🔇  Música: desactivada"
+		music.Volume = MUSIC_VOL * 0.5
+		if hum then
+			savedMove = { ws = hum.WalkSpeed, jp = hum.JumpPower, jh = hum.JumpHeight }
+			hum.WalkSpeed = 0; hum.JumpPower = 0; hum.JumpHeight = 0
+		end
+	else
+		music.Volume = MUSIC_VOL
+		if hum and savedMove then hum.WalkSpeed = savedMove.ws; hum.JumpPower = savedMove.jp; hum.JumpHeight = savedMove.jh end
+		savedMove = nil
+	end
+end
+pauseBtn.MouseButton1Click:Connect(function() if S and S.phase == "playing" and not S.paused then setPaused(not S.userPaused) end end)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed or input.KeyCode ~= Enum.KeyCode.P then return end
+	if S and S.phase == "playing" and not S.paused then setPaused(not S.userPaused) end
+end)
 
 remote.OnClientEvent:Connect(function(kind, a, b)
 	if kind == "state" then

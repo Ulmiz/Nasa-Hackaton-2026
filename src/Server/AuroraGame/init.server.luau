@@ -121,7 +121,7 @@ local function promptHolder(model, name)
 	return part
 end
 local function refreshPrompts()
-	for _, p in prompts do p.prompt.Enabled = (S.phase == "playing" and S.day == p.day) end
+	for _, p in prompts do p.prompt.Enabled = (S.phase == "playing" and S.day == p.day and not S.userPaused) end
 end
 
 ---------------------------------------------------------------- contexto compartido con los módulos de día
@@ -143,7 +143,7 @@ local function newState()
 	local units = {}
 	for i = 1, Config.Greenhouse.units do units[i] = { hyd = 100, alive = true } end
 	local st = {
-		phase = "intro", day = 0, timeLeft = Config.DAY_LENGTH[0], paused = false,
+		phase = "intro", day = 0, timeLeft = Config.DAY_LENGTH[0], paused = false, userPaused = false,
 		power = 100, comms = 0, budget = 0, cost = 0, mass = 0, data = 0,
 		rep = Config.REP_START, score = 0,
 		panels = { false, false, false, false }, commsDoneAt = 0,
@@ -198,6 +198,7 @@ local function startDay(day)
 	S.dayName = DAY_NAMES[day]
 	S.phase = "playing"
 	S.paused = false
+	S.userPaused = false
 	S.timeLeft = Config.DAY_LENGTH[day] or Config.DAY_SECONDS
 	local lowRep = S.rep < 30
 	S.power = (day > 0 and lowRep) and 80 or 100
@@ -418,6 +419,16 @@ end
 remote.OnServerEvent:Connect(function(who, action, data)
 	if who ~= player or type(action) ~= "string" then return end
 	if action == "hello" then push() return end
+	-- pausa del jugador: congela el reloj, el invernadero, la órbita y las interacciones
+	if action == "pause" then
+		if S.phase == "playing" and not S.paused and type(data) == "table" then
+			S.userPaused = data.on == true
+			refreshPrompts()
+			push()
+		end
+		return
+	end
+	if S.userPaused and action ~= "restart" then return end
 	local fn = actions[action]
 	if fn then
 		fn(data)
@@ -430,7 +441,7 @@ end)
 
 for _, p in prompts do
 	p.prompt.Triggered:Connect(function(who)
-		if who ~= player then return end
+		if who ~= player or S.userPaused then return end
 		onPrompt(p.prompt:GetAttribute("Key"))
 	end)
 end
@@ -439,7 +450,7 @@ end
 task.spawn(function()
 	while true do
 		task.wait(1)
-		if S.phase == "playing" then
+		if S.phase == "playing" and not S.userPaused then
 			if not S.paused then S.timeLeft -= 1 end
 			if S.day == 1 then
 				local G = Config.Greenhouse
